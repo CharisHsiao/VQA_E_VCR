@@ -42,7 +42,7 @@ class AttentionQA(Model):
 
         self.span_encoder = TimeDistributed(span_encoder)
         self.reasoning_encoder = TimeDistributed(reasoning_encoder)
-
+        # add scene classification visual feature and word embedding feature
         self.span_attention = BilinearMatrixAttention(
             matrix_1_dim=span_encoder.get_output_dim(),
             matrix_2_dim=span_encoder.get_output_dim(),
@@ -52,7 +52,7 @@ class AttentionQA(Model):
             matrix_1_dim=span_encoder.get_output_dim(),
             matrix_2_dim=self.detector.final_dim,
         )
-
+        
         self.reasoning_use_obj = reasoning_use_obj
         self.reasoning_use_answer = reasoning_use_answer
         self.reasoning_use_question = reasoning_use_question
@@ -71,6 +71,7 @@ class AttentionQA(Model):
             torch.nn.Linear(hidden_dim_maxpool, 1),
         )
         self._accuracy = CategoricalAccuracy()
+        # I want to replace the CrossEntropyLoss with LSR
         self._loss = torch.nn.CrossEntropyLoss()
         initializer(self)
 
@@ -91,7 +92,7 @@ class AttentionQA(Model):
             row_id_broadcaster = row_id_broadcaster[..., None]
         row_id += row_id_broadcaster
         return object_reps[row_id.view(-1), span_tags_fixed.view(-1)].view(*span_tags_fixed.shape, -1)
-
+    # I want to replace the position embedding with another one.
     def embed_span(self, span, span_tags, span_mask, object_reps):
         """
         :param span: Thing that will get embed and turned into [batch_size, ..leading_dims.., L, word_dim]
@@ -181,7 +182,10 @@ class AttentionQA(Model):
                                                            (attended_o, self.reasoning_use_obj),
                                                            (attended_q, self.reasoning_use_question)]
                                       if to_pool], -1)
-
+        #add scence classifcation feature and make the attention matrix betwwen visual feature and the answer features
+        
+         # we cam use these three attentions to do multiclassification
+            
         if self.rnn_input_dropout is not None:
             reasoning_inp = self.rnn_input_dropout(reasoning_inp)
         reasoning_output = self.reasoning_encoder(reasoning_inp, answer_mask)

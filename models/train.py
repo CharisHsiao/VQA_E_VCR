@@ -126,7 +126,7 @@ for epoch_num in range(start_epoch, params['trainer']['num_epochs'] + start_epoc
         optimizer.zero_grad()
         output_dict = model(**batch)
         loss = output_dict['loss'].mean() + output_dict['cnn_regularization_loss'].mean()
-        loss.backward()
+        loss.backward            a
 
         num_batches += 1
         if scheduler:
@@ -148,13 +148,7 @@ for epoch_num in range(start_epoch, params['trainer']['num_epochs'] + start_epoc
         if b % ARGS_RESET_EVERY == 0 and b > 0:
             norms_df = pd.DataFrame(pd.DataFrame(norms[-ARGS_RESET_EVERY:]).mean(), columns=['norm']).join(
                 param_shapes[['shape', 'size']]).sort_values('norm', ascending=False)
-            '''
-            print("e{:2d}b{:5d}/{:5d}. norms: \n{}\nsumm:\n{}\n~~~~~~~~~~~~~~~~~~\n".format(
-                epoch_num, b, len(train_loader),
-                norms_df.to_string(formatters={'norm': '{:.2f}'.format}),
-                pd.DataFrame(train_results[-ARGS_RESET_EVERY:]).mean(),
-            ), flush=True)
-            '''
+            # print('yifanyifanyifanyifanfan')
             print("e{:2d}b{:5d}/{:5d}. norms: \n{}\nsumm:\n{}\n~~~~~~~~~~~~~~~~~~\n".format(
                 epoch_num, b, len(train_loader),
                 norms_df.to_string(formatters={'norm': '{:.2f}'.format}),
