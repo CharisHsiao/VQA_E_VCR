@@ -13,6 +13,7 @@ from allennlp.modules import TextFieldEmbedder, Seq2SeqEncoder, FeedForward, Inp
 from allennlp.training.metrics import CategoricalAccuracy
 from allennlp.modules.matrix_attention import BilinearMatrixAttention
 from utils.detector import SimpleDetector
+from utils.labelsmoothloss import LabelSmoothingLoss
 from allennlp.nn.util import masked_softmax, weighted_sum, replace_masked_values
 from allennlp.nn import InitializerApplicator
 
@@ -42,7 +43,11 @@ class AttentionQA(Model):
 
         self.span_encoder = TimeDistributed(span_encoder)
         self.reasoning_encoder = TimeDistributed(reasoning_encoder)
+        
+        
         # add scene classification visual feature and word embedding feature
+        
+        
         self.span_attention = BilinearMatrixAttention(
             matrix_1_dim=span_encoder.get_output_dim(),
             matrix_2_dim=span_encoder.get_output_dim(),
@@ -71,8 +76,13 @@ class AttentionQA(Model):
             torch.nn.Linear(hidden_dim_maxpool, 1),
         )
         self._accuracy = CategoricalAccuracy()
+        
+        
         # I want to replace the CrossEntropyLoss with LSR
-        self._loss = torch.nn.CrossEntropyLoss()
+        
+        
+        self._loss = torch.nn.LabelSmoothingLoss(size=4,smooth=0.1)
+        # self._loss = torch.nn.CrossEntropyLoss()
         initializer(self)
 
     def _collect_obj_reps(self, span_tags, object_reps):
