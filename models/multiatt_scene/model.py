@@ -17,7 +17,7 @@ from utils.labelsmoothloss import LabelSmoothingLoss
 from allennlp.nn.util import masked_softmax, weighted_sum, replace_masked_values
 from allennlp.nn import InitializerApplicator
 
-@Model.register("MultiHopAttentionQA")
+@Model.register("MultiAttentionQA_Scene")
 class AttentionQA(Model):
     def __init__(self,
                  vocab: Vocabulary,
@@ -32,13 +32,14 @@ class AttentionQA(Model):
                  pool_reasoning: bool = True,
                  pool_answer: bool = True,
                  pool_question: bool = False,
+                 qa_visual: bool = False,
                  initializer: InitializerApplicator = InitializerApplicator(),
                  ):
         super(AttentionQA, self).__init__(vocab)
 
         self.detector = SimpleDetector(pretrained=True, average_pool=True, semantic=class_embs, final_dim=512)
         ###################################################################################################
-        print('0')
+
         self.rnn_input_dropout = TimeDistributed(InputVariationalDropout(input_dropout)) if input_dropout > 0 else None
 
         self.span_encoder = TimeDistributed(span_encoder)
@@ -80,19 +81,18 @@ class AttentionQA(Model):
         
         # I want to replace the CrossEntropyLoss with LSR
         
-        
-        self._loss = LabelSmoothingLoss(size=4,smoothing= 0.1)
+        self._loss = LabelSmoothingLoss(size=4,smoothing=0.1)
         # self._loss = torch.nn.CrossEntropyLoss()
         initializer(self)
 
     def _collect_obj_reps(self, span_tags, object_reps):
         """
         Collect span-level object representations
-        :param span_tags: [batch_size, ..leading_dims.., L]
+        :param span_tags: [batch_size, ..leading_dims.., L]  #what is this??
         :param object_reps: [batch_size, max_num_objs_per_batch, obj_dim]
         :return:
         """
-        span_tags_fixed = torch.clamp(span_tags, min=0)  # In case there were masked values here
+        span_tags_fixed = torch.clamp(span_tags, min=0)  # In case there were masked values here 
         row_id = span_tags_fixed.new_zeros(span_tags_fixed.shape)
         row_id_broadcaster = torch.arange(0, row_id.shape[0], step=1, device=row_id.device)[:, None]
 
@@ -104,8 +104,8 @@ class AttentionQA(Model):
         return object_reps[row_id.view(-1), span_tags_fixed.view(-1)].view(*span_tags_fixed.shape, -1)
     
     
-    # I want to replace the position embedding with another one.
-    def embed_span(self, span, span_tags, span_mask, object_reps):
+    
+    def embed_span(self, span, span_tags, span_mask, object_reps,qa_visual):
         """
         :param span: Thing that will get embed and turned into [batch_size, ..leading_dims.., L, word_dim]
         :param span_tags: [batch_size, ..leading_dims.., L]
@@ -114,13 +114,61 @@ class AttentionQA(Model):
         :return:
         """
         retrieved_feats = self._collect_obj_reps(span_tags, object_reps)
-
-        span_rep = torch.cat((span['bert'], retrieved_feats), -1)
+        if qa_visual:
+            span_rep = torch.cat((span['bert'], retrieved_feats), -1)
+        else:
+            span_rep = span['bert']
         # add recurrent dropout here
         if self.rnn_input_dropout:
             span_rep = self.rnn_input_dropout(span_rep)
 
         return self.span_encoder(span_rep, span_mask), retrieved_feats
+    
+    
+    # I want to replace the position embedding with another one.
+    def qi_embed(self, span, span_tags, span_mask, object_reps,qa_visual):
+        """
+        :param span: Thing that will get embed and turned into [batch_size, ..leading_dims.., L, word_dim]
+        :param span_tags: [batch_size, ..leading_dims.., L]
+        :param object_reps: [batch_size, max_num_objs_per_batch, obj_dim]
+        :param span_mask: [batch_size, ..leading_dims.., span_mask
+        :return:
+        """
+        
+        # the output of the Resnet last layer is required when a image list are given.
+        sce_feats = self._collect_sce_reps(span_tags)# what are span and  span_tags
+
+        # retrieved_feats = self._collect_obj_reps(span_tags, object_reps)
+        
+        ques_reps = None
+        sce_feats = span['bert'] # Wrong, only the last and whole represention is needed
+        
+        # a projection is needed to project images'scene featurn and question bert featurn into the same splace
+        qi_rep = self.projection(sce_feats,sce_feats)  # Wrong
+       
+        return qi_rep
+    
+    def _collect_sce_reps(self, span_tags):
+        """
+        Collect image representations (scene classifation)
+        :param span_tags:  #what is this??
+        :return:
+        """
+        
+        pass
+        span_tags_fixed = torch.clamp(span_tags, min=0)  # In case there were masked values here 
+        row_id = span_tags_fixed.new_zeros(span_tags_fixed.shape)
+        row_id_broadcaster = torch.arange(0, row_id.shape[0], step=1, device=row_id.device)[:, None]
+
+        # Add extra diminsions to the row broadcaster so it matches row_id
+        leading_dims = len(span_tags.shape) - 2
+        for i in range(leading_dims):
+            row_id_broadcaster = row_id_broadcaster[..., None]
+        row_id += row_id_broadcaster
+        return object_reps[row_id.view(-1), span_tags_fixed.view(-1)].view(*span_tags_fixed.shape, -1)
+    
+    
+    
 
     def forward(self,
                 images: torch.Tensor,
@@ -168,9 +216,25 @@ class AttentionQA(Model):
         obj_reps = self.detector(images=images, boxes=boxes, box_mask=box_mask, classes=objects, segms=segms)
 
         # Now get the question representations
-        q_rep, q_obj_reps = self.embed_span(question, question_tags, question_mask, obj_reps['obj_reps'])
-        a_rep, a_obj_reps = self.embed_span(answers, answer_tags, answer_mask, obj_reps['obj_reps'])
-
+        
+        q_rep, q_obj_reps = self.embed_span(question, question_tags, question_mask, obj_reps['obj_reps'],qa_visual)
+        a_rep, a_obj_reps = self.embed_span(answers, answer_tags, answer_mask, obj_reps['obj_reps'],qa_visual)
+                #add scence classifcation feature and make the attention matrix betwwen visual feature and the answer features
+        print('#######################question##################')
+        print(question)
+        
+        print('#######################question_tags##################')
+        print(question_tags)
+        
+        print('#######################question_mask##################')
+        print(question_mask)
+        
+        sys.exit()
+        
+        qi_rep = self.qi_embed(question, question_tags, question_mask, obj_reps['obj_reps'])
+        
+        
+        
         ####################################
         # Perform Q by A attention
         # [batch_size, 4, question_length, answer_length]
@@ -189,12 +253,23 @@ class AttentionQA(Model):
         atoo_attention_weights = masked_softmax(atoo_similarity, box_mask[:,None,None])
         attended_o = torch.einsum('bnao,bod->bnad', (atoo_attention_weights, obj_reps['obj_reps']))
 
+        
+        
+        ####################################
+
+        ####################################
+        
+        
+        
 
         reasoning_inp = torch.cat([x for x, to_pool in [(a_rep, self.reasoning_use_answer),
                                                            (attended_o, self.reasoning_use_obj),
                                                            (attended_q, self.reasoning_use_question)]
                                       if to_pool], -1)
-        #add scence classifcation feature and make the attention matrix betwwen visual feature and the answer features
+        
+        
+        
+        
         
          # we cam use these three attentions to do multiclassification
             
