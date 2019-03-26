@@ -35,25 +35,26 @@ class AttentionQA(Model):
                  qa_visual: bool = False,
                  initializer: InitializerApplicator = InitializerApplicator(),
                  ):
+        print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~init_0~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
         super(AttentionQA, self).__init__(vocab)
 
         self.detector = SimpleDetector(pretrained=True, average_pool=True, semantic=class_embs, final_dim=512)
         ###################################################################################################
-
+        print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~init_0.1~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
         self.rnn_input_dropout = TimeDistributed(InputVariationalDropout(input_dropout)) if input_dropout > 0 else None
 
         self.span_encoder = TimeDistributed(span_encoder)
         self.reasoning_encoder = TimeDistributed(reasoning_encoder)
-        
+        print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~init_0.2~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
         
         # add scene classification visual feature and word embedding feature
         
-        
+        print("init_1")
         self.span_attention = BilinearMatrixAttention(
             matrix_1_dim=span_encoder.get_output_dim(),
             matrix_2_dim=span_encoder.get_output_dim(),
         )
-
+        print("init_2")
         self.obj_attention = BilinearMatrixAttention(
             matrix_1_dim=span_encoder.get_output_dim(),
             matrix_2_dim=self.detector.final_dim,
@@ -65,6 +66,7 @@ class AttentionQA(Model):
         self.pool_reasoning = pool_reasoning
         self.pool_answer = pool_answer
         self.pool_question = pool_question
+        self.qa_visual = qa_visual
         dim = sum([d for d, to_pool in [(reasoning_encoder.get_output_dim(), self.pool_reasoning),
                                         (span_encoder.get_output_dim(), self.pool_answer),
                                         (span_encoder.get_output_dim(), self.pool_question)] if to_pool])
@@ -80,7 +82,7 @@ class AttentionQA(Model):
         
         
         # I want to replace the CrossEntropyLoss with LSR
-        
+        print("init_3")
         self._loss = LabelSmoothingLoss(size=4,smoothing=0.1)
         # self._loss = torch.nn.CrossEntropyLoss()
         initializer(self)
@@ -105,7 +107,7 @@ class AttentionQA(Model):
     
     
     
-    def embed_span(self, span, span_tags, span_mask, object_reps,qa_visual):
+    def embed_span(self, span, span_tags, span_mask, object_reps):
         """
         :param span: Thing that will get embed and turned into [batch_size, ..leading_dims.., L, word_dim]
         :param span_tags: [batch_size, ..leading_dims.., L]
@@ -114,7 +116,7 @@ class AttentionQA(Model):
         :return:
         """
         retrieved_feats = self._collect_obj_reps(span_tags, object_reps)
-        if qa_visual:
+        if self.qa_visual:
             span_rep = torch.cat((span['bert'], retrieved_feats), -1)
         else:
             span_rep = span['bert']
@@ -126,7 +128,7 @@ class AttentionQA(Model):
     
     
     # I want to replace the position embedding with another one.
-    def qi_embed(self, span, span_tags, span_mask, object_reps,qa_visual):
+    def qi_embed(self, span, span_tags, span_mask, object_reps):
         """
         :param span: Thing that will get embed and turned into [batch_size, ..leading_dims.., L, word_dim]
         :param span_tags: [batch_size, ..leading_dims.., L]
@@ -212,24 +214,38 @@ class AttentionQA(Model):
                 raise ValueError("Oh no! {}_tags has maximum of {} but objects is of dim {}. Values are\n{}".format(
                     tag_type, int(the_tags.max()), objects.shape, the_tags
                 ))
-
+        
+        print(type(images))
+        print(type(question))
+        print(type(question_tags))
+        print(type(question_mask))
+        print('#######################images##################')
+        print(images.size())
+        
+        print('#######################question##################')
+        print(len(question))
+        for i in question:
+            print(i,question[i].size())
+        
+        print('#######################question_tags##################')
+        print(type(question_tags))
+        print(question_tags.size())
+        
+        print('#######################question_mask##################')
+        print(question_mask.size())
+        # raise ValueError('11111Stop by the user')
+        
+        
         obj_reps = self.detector(images=images, boxes=boxes, box_mask=box_mask, classes=objects, segms=segms)
 
         # Now get the question representations
         
-        q_rep, q_obj_reps = self.embed_span(question, question_tags, question_mask, obj_reps['obj_reps'],qa_visual)
-        a_rep, a_obj_reps = self.embed_span(answers, answer_tags, answer_mask, obj_reps['obj_reps'],qa_visual)
+        q_rep, q_obj_reps = self.embed_span(question, question_tags, question_mask, obj_reps['obj_reps'])
+        a_rep, a_obj_reps = self.embed_span(answers, answer_tags, answer_mask, obj_reps['obj_reps'])
                 #add scence classifcation feature and make the attention matrix betwwen visual feature and the answer features
-        print('#######################question##################')
-        print(question)
         
-        print('#######################question_tags##################')
-        print(question_tags)
+
         
-        print('#######################question_mask##################')
-        print(question_mask)
-        
-        sys.exit()
         
         qi_rep = self.qi_embed(question, question_tags, question_mask, obj_reps['obj_reps'])
         

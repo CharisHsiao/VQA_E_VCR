@@ -5,14 +5,25 @@ ok so I lied. it's not a detector, it's the resnet backbone
 import torch
 import torch.nn as nn
 import torch.nn.parallel
-from torchvision.models import resnet
+# from torchvision.models import resnet
 
-from utils.pytorch_misc import Flattener
-from torchvision.layers import ROIAlign
-import torch.utils.model_zoo as model_zoo
+# from utils.pytorch_misc import Flattener
+# from torchvision.layers import ROIAlign
+# import torch.utils.model_zoo as model_zoo
 from config import USE_IMAGENET_PRETRAINED
-from utils.pytorch_misc import pad_sequence
+# from utils.pytorch_misc import pad_sequence
+
+
+from torch.autograd import Variable as V
+import torchvision.models as models
+from torchvision import transforms as trn
 from torch.nn import functional as F
+import os
+from PIL import Image
+
+from functools import partial
+import pickle
+
 
 
 def _load_resnet(pretrained=True):
@@ -32,8 +43,6 @@ def _load_resnet_imagenet(pretrained=True):
     
     # th architecture to use
     arch = 'resnet50'
-    
-    
     
     # load the pre-trained weights
     model_file = '%s_places365.pth.tar' % arch
@@ -64,8 +73,8 @@ def _load_resnet_imagenet(pretrained=True):
     return backbone
 
 
-class SimpleDetector(nn.Module):
-    def __init__(self, pretrained=True, average_pool=True, semantic=True, final_dim=1024):
+class SimpleExtractor(nn.Module):
+    def __init__(self,images):
         """
         :param average_pool: whether or not to average pool the representations
         :param pretrained: Whether we need to load from scratch
@@ -73,6 +82,42 @@ class SimpleDetector(nn.Module):
         """
         super(SimpleDetector, self).__init__()
         # huge thx to https://github.com/ruotianluo/pytorch-faster-rcnn/blob/master/lib/nets/resnet_v1.py
+        arch = 'resnet50'
+        model_file = '%s_places365.pth.tar' % arch
+        if not os.access(model_path, os.W_OK):
+            weight_url = 'http://places2.csail.mit.edu/models_places365/' + model_file
+            os.system('wget ' + weight_url+ ' ' + model_folder)
+    
+        model = models.__dict__[arch](num_classes=365)
+        checkpoint = torch.load(model_path, map_location=lambda storage, loc: storage)
+        state_dict = {str.replace(k,'module.',''): v for k,v in checkpoint['state_dict'].items()}
+        model.load_state_dict(state_dict)
+        model.eval()
+        # load the image transformer
+        centre_crop = trn.Compose([
+               trn.Resize((256,256)),
+               trn.CenterCrop(224),
+            trn.ToTensor(),
+            trn.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        ])
+        # load the class label
+        file_name = 'categories_places365.txt'
+        if not os.access(file_name, os.W_OK):
+            synset_url = 'https://raw.githubusercontent.com/csailvision/places365/master/categories_places365.txt'
+            os.system('wget ' + synset_url)
+        classes = list()
+        with open(file_name) as class_file:
+            for line in class_file:
+                classes.append(line.strip().split(' ')[0][3:])
+        classes = tuple(classes)
+        
+        m = nn.Upsample(s)
+        centre_crop = trn.Compose([
+            trn.Resize((256,256)),
+            trn.CenterCrop(224),
+            trn.ToTensor(),
+            trn.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])])
+        
         backbone = _load_resnet_imagenet(pretrained=pretrained) if USE_IMAGENET_PRETRAINED else _load_resnet(
             pretrained=pretrained)
 
@@ -118,8 +163,28 @@ class SimpleDetector(nn.Module):
                 ):
         """
         :param images: [batch_size, 3, im_height, im_width]
-        :return: object reps [batch_size, max_num_objects, dim]
+        :return: images [batch_size, , dim]
         """
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
         # [batch_size, 2048, im_height // 32, im_width // 32
         img_feats = self.backbone(images)
         box_inds = box_mask.nonzero()
