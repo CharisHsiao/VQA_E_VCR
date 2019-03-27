@@ -13,6 +13,7 @@ from allennlp.modules import TextFieldEmbedder, Seq2SeqEncoder, FeedForward, Inp
 from allennlp.training.metrics import CategoricalAccuracy
 from allennlp.modules.matrix_attention import BilinearMatrixAttention
 from utils.detector import SimpleDetector
+from utils.extractor import SimpleExtractor
 from utils.labelsmoothloss import LabelSmoothingLoss
 from allennlp.nn.util import masked_softmax, weighted_sum, replace_masked_values
 from allennlp.nn import InitializerApplicator
@@ -39,7 +40,7 @@ class AttentionQA(Model):
         super(AttentionQA, self).__init__(vocab)
 
         self.detector = SimpleDetector(pretrained=True, average_pool=True, semantic=class_embs, final_dim=512)
-        self.extractor = SimpleExtractor(pretrained=True,num_classes=365, arch='resnet50', dataset='places365')
+        self.extractor = SimpleExtractor(pretrained=True,num_classes=365, arch='resnet50')
         ###################################################################################################
         print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~init_0.1~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
         self.rnn_input_dropout = TimeDistributed(InputVariationalDropout(input_dropout)) if input_dropout > 0 else None
@@ -265,7 +266,7 @@ class AttentionQA(Model):
         
 
         
-        
+        img_feats_place365 = self.extractor(images=images)
         qi_rep = self.qi_embed(question, question_tags, question_mask, obj_reps['obj_reps'])
         ####################################
         # Perform QI by Attention
