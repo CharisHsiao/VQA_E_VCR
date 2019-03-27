@@ -39,6 +39,7 @@ class AttentionQA(Model):
         super(AttentionQA, self).__init__(vocab)
 
         self.detector = SimpleDetector(pretrained=True, average_pool=True, semantic=class_embs, final_dim=512)
+        self.extractor = SimpleExtractor(pretrained=True,num_classes=365, arch='resnet50', dataset='places365')
         ###################################################################################################
         print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~init_0.1~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
         self.rnn_input_dropout = TimeDistributed(InputVariationalDropout(input_dropout)) if input_dropout > 0 else None
@@ -136,19 +137,36 @@ class AttentionQA(Model):
         :param span_mask: [batch_size, ..leading_dims.., span_mask
         :return:
         """
-        
         # the output of the Resnet last layer is required when a image list are given.
         sce_feats = self._collect_sce_reps(span_tags)# what are span and  span_tags
-
-        # retrieved_feats = self._collect_obj_reps(span_tags, object_reps)
         
+        # retrieved_feats = self._collect_obj_reps(span_tags, object_reps)
         ques_reps = None
         sce_feats = span['bert'] # Wrong, only the last and whole represention is needed
         
         # a projection is needed to project images'scene featurn and question bert featurn into the same splace
-        qi_rep = self.projection(sce_feats,sce_feats)  # Wrong
-       
+        qi_rep = self._projection(ques_reps,sce_feats)  # Wrong
+        # 2 minutes quick quick quick quick y
+        # you can have bug, you just write down the formula please 
+        
+
+        
+
         return qi_rep
+    
+
+    def _projection(self,ques_reps,sce_feats):
+        """
+        :param ques_reps: [batch_size,dim]
+        :param sce_feats: [batch_size,7,7,dim]
+        :param object_reps: [batch_size, max_num_objs_per_batch, obj_dim]
+        :param span_mask: [batch_size, ..leading_dims.., span_mask
+        :return:
+        """
+        ques_reps = ques_reps.repeat(7,7,1,1)
+        ques_reps.reshape(sce_feats.size())
+        return  ques_reps+ sce_feats
+
     
     def _collect_sce_reps(self, span_tags):
         """
@@ -214,7 +232,7 @@ class AttentionQA(Model):
                 raise ValueError("Oh no! {}_tags has maximum of {} but objects is of dim {}. Values are\n{}".format(
                     tag_type, int(the_tags.max()), objects.shape, the_tags
                 ))
-        
+        image_rep = se
         print(type(images))
         print(type(question))
         print(type(question_tags))
@@ -242,18 +260,24 @@ class AttentionQA(Model):
         
         q_rep, q_obj_reps = self.embed_span(question, question_tags, question_mask, obj_reps['obj_reps'])
         a_rep, a_obj_reps = self.embed_span(answers, answer_tags, answer_mask, obj_reps['obj_reps'])
-                #add scence classifcation feature and make the attention matrix betwwen visual feature and the answer features
+        
+        #add scence classifcation feature and make the attention matrix betwwen visual feature and the answer features
         
 
         
         
         qi_rep = self.qi_embed(question, question_tags, question_mask, obj_reps['obj_reps'])
-        
-        
+        ####################################
+        # Perform QI by Attention
+        # [batch_size,4,7,7,answer_length]
+        # qi_rep: [batch_size.7,7,dim]
+        qi_a_similarity = self.apan_attention(
+            qi_rep.view(),
         
         ####################################
         # Perform Q by A attention
         # [batch_size, 4, question_length, answer_length]
+        # 
         qa_similarity = self.span_attention(
             q_rep.view(q_rep.shape[0] * q_rep.shape[1], q_rep.shape[2], q_rep.shape[3]),
             a_rep.view(a_rep.shape[0] * a_rep.shape[1], a_rep.shape[2], a_rep.shape[3]),

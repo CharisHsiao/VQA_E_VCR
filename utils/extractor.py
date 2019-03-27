@@ -28,7 +28,7 @@ import pickle
 
 def _load_resnet(pretrained=True):
     # huge thx to https://github.com/ruotianluo/pytorch-faster-rcnn/blob/master/lib/nets/resnet_v1.py
-    backbone = resnet.resnet50(pretrained=False)
+    backbone = resnet.resnet50(pretrained=False,)
     if pretrained:
         backbone.load_state_dict(model_zoo.load_url(
             'https://s3.us-west-2.amazonaws.com/ai2-rowanz/resnet50-e13db6895d81.th'))
@@ -38,26 +38,22 @@ def _load_resnet(pretrained=True):
     return backbone
 
 
-def _load_resnet_imagenet(pretrained=True):
-    # huge thx to https://github.com/ruotianluo/pytorch-faster-rcnn/blob/master/lib/nets/resnet_v1.py
-    
-    # th architecture to use
-    arch = 'resnet50'
-    
+def _load_resnet_places365(pretrained=True,arch='resnet50'):
     # load the pre-trained weights
-    model_file = '%s_places365.pth.tar' % arch
-    
-    
-    model_folder = '../models/'
-    model_path =  model_folder + model_file
-
+    model_file = '%s_places365.pth.tar' % arch   
     if not os.access(model_path, os.W_OK):
         weight_url = 'http://places2.csail.mit.edu/models_places365/' + model_file
         os.system('wget ' + weight_url+ ' ' + model_folder)
+
     
-    backbone = resnet.resnet50(pretrained=pretrained)
+    backbone = models.__dict__[arch](self.num_classes) # model: # torchvision.models.resnet.resnet50
+    checkpoint = torch.load(model_path, map_location=lambda storage, loc: storage)
+    state_dict = {str.replace(k,'module.',''): v for k,v in checkpoint['state_dict'].items()}
+    backbone.load_state_dict(state_dict)
+    # model.eval()
     
     
+    # don't know the meaning of the code followed.
     for i in range(2, 4):
         getattr(backbone, 'layer%d' % i)[0].conv1.stride = (2, 2)
         getattr(backbone, 'layer%d' % i)[0].conv2.stride = (1, 1)
@@ -74,7 +70,7 @@ def _load_resnet_imagenet(pretrained=True):
 
 
 class SimpleExtractor(nn.Module):
-    def __init__(self,images):
+    def __init__(self,pretrained=True, num_classes=365, arch='resnet50'):
         """
         :param average_pool: whether or not to average pool the representations
         :param pretrained: Whether we need to load from scratch
@@ -82,24 +78,12 @@ class SimpleExtractor(nn.Module):
         """
         super(SimpleDetector, self).__init__()
         # huge thx to https://github.com/ruotianluo/pytorch-faster-rcnn/blob/master/lib/nets/resnet_v1.py
-        arch = 'resnet50'
-        model_file = '%s_places365.pth.tar' % arch
-        if not os.access(model_path, os.W_OK):
-            weight_url = 'http://places2.csail.mit.edu/models_places365/' + model_file
-            os.system('wget ' + weight_url+ ' ' + model_folder)
-    
-        model = models.__dict__[arch](num_classes=365)
-        checkpoint = torch.load(model_path, map_location=lambda storage, loc: storage)
-        state_dict = {str.replace(k,'module.',''): v for k,v in checkpoint['state_dict'].items()}
-        model.load_state_dict(state_dict)
-        model.eval()
-        # load the image transformer
-        centre_crop = trn.Compose([
-               trn.Resize((256,256)),
-               trn.CenterCrop(224),
-            trn.ToTensor(),
-            trn.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-        ])
+        self.num_classes = num_classes
+        model_file = '%s_%s.pth.tar' % (arch,dataset)
+        backbone = _load_resnet_places365(pretrained=pretrained,arch) if USE_PLACE365_PRETRAINED else _load_resnet(
+            pretrained=pretrained) 
+
+        
         # load the class label
         file_name = 'categories_places365.txt'
         if not os.access(file_name, os.W_OK):
@@ -110,61 +94,21 @@ class SimpleExtractor(nn.Module):
             for line in class_file:
                 classes.append(line.strip().split(' ')[0][3:])
         classes = tuple(classes)
+        # you do it later
+        please switch to other part
+        multi attention
+        ？？？？  not this one
         
-        m = nn.Upsample(s)
-        centre_crop = trn.Compose([
-            trn.Resize((256,256)),
-            trn.CenterCrop(224),
-            trn.ToTensor(),
-            trn.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])])
         
-        backbone = _load_resnet_imagenet(pretrained=pretrained) if USE_IMAGENET_PRETRAINED else _load_resnet(
-            pretrained=pretrained)
-
-        self.backbone = nn.Sequential(
-            backbone.conv1,
-            backbone.bn1,
-            backbone.relu,
-            backbone.maxpool,
-            backbone.layer1,
-            backbone.layer2,
-            backbone.layer3,
-            # backbone.layer4
-        )
-        self.roi_align = ROIAlign((7, 7) if USE_IMAGENET_PRETRAINED else (14, 14),
-                                  spatial_scale=1 / 16, sampling_ratio=0)
-
-        if semantic:
-            self.mask_dims = 32
-            self.object_embed = torch.nn.Embedding(num_embeddings=81, embedding_dim=128)
-            self.mask_upsample = torch.nn.Conv2d(1, self.mask_dims, kernel_size=3,
-                                                 stride=2 if USE_IMAGENET_PRETRAINED else 1,
-                                                 padding=1, bias=True)
-        else:
-            self.object_embed = None
-            self.mask_upsample = None
-
-        after_roi_align = [backbone.layer4]
-        self.final_dim = final_dim
-        if average_pool:
-            after_roi_align += [nn.AvgPool2d(7, stride=1), Flattener()]
-
-        self.after_roi_align = torch.nn.Sequential(*after_roi_align)
-
-        self.obj_downsample = torch.nn.Sequential(
-            torch.nn.Dropout(p=0.1),
-            torch.nn.Linear(2048 + (128 if semantic else 0), final_dim),
-            torch.nn.ReLU(inplace=True),
-        )
-        self.regularizing_predictor = torch.nn.Linear(2048, 81)
 
     def forward(self,
                 images: torch.Tensor
                 ):
         """
         :param images: [batch_size, 3, im_height, im_width]
-        :return: images [batch_size, , dim]
+        :return: images [batch_size,7,7,dim]
         """
+        return r
         
         
         
