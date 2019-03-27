@@ -33,7 +33,7 @@ class AttentionQA(Model):
                  pool_reasoning: bool = True,
                  pool_answer: bool = True,
                  pool_question: bool = False,
-                 qa_visual: bool = False,
+                 reasoning_use_vision: True,
                  initializer: InitializerApplicator = InitializerApplicator(),
                  ):
         print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~init_0~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
@@ -68,11 +68,13 @@ class AttentionQA(Model):
         self.pool_reasoning = pool_reasoning
         self.pool_answer = pool_answer
         self.pool_question = pool_question
-        self.qa_visual = qa_visual
+        self.reasoning_use_vision = reasoning_use_vision
         dim = sum([d for d, to_pool in [(reasoning_encoder.get_output_dim(), self.pool_reasoning),
                                         (span_encoder.get_output_dim(), self.pool_answer),
                                         (span_encoder.get_output_dim(), self.pool_question)] if to_pool])
-
+        
+        self.projection = torch.nn.Conv2d(2048,final_dim=512,kernel_size=1,stride=2,padding=1, bias=True)
+        
         self.final_mlp = torch.nn.Sequential(
             torch.nn.Dropout(input_dropout, inplace=False),
             torch.nn.Linear(dim, hidden_dim_maxpool),
@@ -118,75 +120,51 @@ class AttentionQA(Model):
         :return:
         """
         retrieved_feats = self._collect_obj_reps(span_tags, object_reps)
-        if self.qa_visual:
-            span_rep = torch.cat((span['bert'], retrieved_feats), -1)
-        else:
-            span_rep = span['bert']
+
+
+        span_rep = span['bert']
         # add recurrent dropout here
         if self.rnn_input_dropout:
             span_rep = self.rnn_input_dropout(span_rep)
 
         return self.span_encoder(span_rep, span_mask), retrieved_feats
     
-    
-    # I want to replace the position embedding with another one.
-    def qi_embed(self, span, span_tags, span_mask, object_reps):
-        """
-        :param span: Thing that will get embed and turned into [batch_size, ..leading_dims.., L, word_dim]
-        :param span_tags: [batch_size, ..leading_dims.., L]
-        :param object_reps: [batch_size, max_num_objs_per_batch, obj_dim]
-        :param span_mask: [batch_size, ..leading_dims.., span_mask
-        :return:
-        """
-        # the output of the Resnet last layer is required when a image list are given.
-        sce_feats = self._collect_sce_reps(span_tags)# what are span and  span_tags
-        
-        # retrieved_feats = self._collect_obj_reps(span_tags, object_reps)
-        ques_reps = None
-        sce_feats = span['bert'] # Wrong, only the last and whole represention is needed
-        
-        # a projection is needed to project images'scene featurn and question bert featurn into the same splace
-        qi_rep = self._projection(ques_reps,sce_feats)  # Wrong
-        # 2 minutes quick quick quick quick y
-        # you can have bug, you just write down the formula please 
-        
-
-        
-
-        return qi_rep
+   
     
 
-    def _projection(self,ques_reps,sce_feats):
+    def qi_embed(self,q_rep,sce_feats):
         """
-        :param ques_reps: [batch_size,dim]
-        :param sce_feats: [batch_size,7,7,dim]
-        :param object_reps: [batch_size, max_num_objs_per_batch, obj_dim]
-        :param span_mask: [batch_size, ..leading_dims.., span_mask
-        :return:
-        """
-        ques_reps = ques_reps.repeat(7,7,1,1)
-        ques_reps.reshape(sce_feats.size())
-        return  ques_reps+ sce_feats
-
-    
-    def _collect_sce_reps(self, span_tags):
-        """
-        Collect image representations (scene classifation)
-        :param span_tags:  #what is this??
-        :return:
+        :param q_rep: [batch_size, num_answers, seq_length, dim]  [96,4,16,512]
+        :param sce_feats: [batch_size,dim,2048, im_height //7 , im_width //7 ]
+        :return:qi_rep: [batch_size,num_answers,dim, im_height , im_width]
         """
         
-        pass
-        span_tags_fixed = torch.clamp(span_tags, min=0)  # In case there were masked values here 
-        row_id = span_tags_fixed.new_zeros(span_tags_fixed.shape)
-        row_id_broadcaster = torch.arange(0, row_id.shape[0], step=1, device=row_id.device)[:, None]
+        # not sure that why 4 is here
+        q_rep_last = q_rep[:,:,-1,:] # [96,4,512] [batch_size,num_answers,hidden_size//]
+        sce_feats_proj = self.projection(sce_feats) # [batch_size,dim,512, im_height //7 , im_width //7 ]
+        qi_rep = torch.einsum('ijd,idwh->ijwhd',q_rep_last,sce_feats_proj) # [96, 4, 512, 7, 7]
+        return  qi_rep
 
-        # Add extra diminsions to the row broadcaster so it matches row_id
-        leading_dims = len(span_tags.shape) - 2
-        for i in range(leading_dims):
-            row_id_broadcaster = row_id_broadcaster[..., None]
-        row_id += row_id_broadcaster
-        return object_reps[row_id.view(-1), span_tags_fixed.view(-1)].view(*span_tags_fixed.shape, -1)
+    
+    
+#     def _collect_sce_reps(self, span_tags):
+#         """
+#         Collect image representations (scene classifation)
+#         :param span_tags:  #what is this??
+#         :return:
+#         """
+        
+#         pass
+#         span_tags_fixed = torch.clamp(span_tags, min=0)  # In case there were masked values here 
+#         row_id = span_tags_fixed.new_zeros(span_tags_fixed.shape)
+#         row_id_broadcaster = torch.arange(0, row_id.shape[0], step=1, device=row_id.device)[:, None]
+
+#         # Add extra diminsions to the row broadcaster so it matches row_id
+#         leading_dims = len(span_tags.shape) - 2
+#         for i in range(leading_dims):
+#             row_id_broadcaster = row_id_broadcaster[..., None]
+#         row_id += row_id_broadcaster
+#         return object_reps[row_id.view(-1), span_tags_fixed.view(-1)].view(*span_tags_fixed.shape, -1)
     
     
     
@@ -233,25 +211,24 @@ class AttentionQA(Model):
                 raise ValueError("Oh no! {}_tags has maximum of {} but objects is of dim {}. Values are\n{}".format(
                     tag_type, int(the_tags.max()), objects.shape, the_tags
                 ))
-        image_rep = se
         print(type(images))
         print(type(question))
         print(type(question_tags))
         print(type(question_mask))
         print('#######################images##################')
-        print(images.size())
+        print(images.size())  # [96,3,384,768] [batch_size,3,im_height,im_width]
         
         print('#######################question##################')
-        print(len(question))
+        print(len(question)) # the value of len(question) is 1
         for i in question:
-            print(i,question[i].size())
+            print(i,question[i].size()) # [96,4,18,768] [batch_size,num_answers,seq_length,bert_dim]
         
         print('#######################question_tags##################')
         print(type(question_tags))
-        print(question_tags.size())
+        print(question_tags.size())  # [96,4,18] [batch_size,num_answers,seq_length]
         
         print('#######################question_mask##################')
-        print(question_mask.size())
+        print(question_mask.size())  # [96,4,18] [batch_size,num_answers,seq_length]
         # raise ValueError('11111Stop by the user')
         
         
@@ -262,29 +239,59 @@ class AttentionQA(Model):
         q_rep, q_obj_reps = self.embed_span(question, question_tags, question_mask, obj_reps['obj_reps'])
         a_rep, a_obj_reps = self.embed_span(answers, answer_tags, answer_mask, obj_reps['obj_reps'])
         
+        print(type(q_rep))
+        print(type(q_obj_reps))
+        print(type(a_rep))
+        print(type(a_obj_reps))
+        print(q_rep.shape)    # torch.Size([96, 4, 16, 512]) [batch_size,num_answers, ]
+        print(q_obj_reps.shape) # torch.Size([96, 4, 16, 512])
+        print(a_rep.shape)    # torch.Size([96, 4, 25, 512])
+        print(a_obj_reps.shape) # torch.Size([96, 4, 25, 512])
+        raise ValueError('11111Stop by the user')
+        
         #add scence classifcation feature and make the attention matrix betwwen visual feature and the answer features
         
 
         
-        img_feats_place365 = self.extractor(images=images)
-        qi_rep = self.qi_embed(question, question_tags, question_mask, obj_reps['obj_reps'])
+        sce_feats = self.extractor(images=images)# sce_feats: [batch_size, 2048, im_height // 7, im_width // 7]"
+       
+        
+        # I want to get the hidden state at the last time q_rep_last step for every layer to be the question featur for calculating qi_rep
+        # I am not sure whether the variable "q_rep" is what I want, since its shape is [96, 4, 16, 512], that is 
+        # [batch_size, num_answers, seq_length, dim]
+        # and the expected size of q_rep_last is [96,4,dim]
+        
+        
+        qi_rep = self.qi_embed(q_rep,sce_feats)# qi_rep  [96, 4,  7, 7, 512,]
+        
+        
         ####################################
         # Perform QI by Attention
         # [batch_size,4,7,7,answer_length]
         # qi_rep: [batch_size.7,7,dim]
         qi_a_similarity = self.apan_attention(
-            qi_rep.view(),
+            qi_rep.view(qi_rep.shape[0]*qi_rep.shape[1],qi_rep.shape[2]*qi_rep.shape[3],qi_rep[4]),# [96*4,  7*7, 512,]
+            a_rep.view(a_rep.shape[0]*a_rep.shape[1],a_rep.shape[2],a_rep.shape[3]),# [96*4, 25, 512]
+        ).view(a_rep.shape[0],a_rep.shape[1],qi_rep.shape[2]*qi_rep.shape[3],a_rep.shape[2]) # [96,4,7*7,25]
+        
+        
+        qi_a_attention_weights = softmax(qi_a_similarity,dim=2)  # [96,4,7*7,25]
+        qi_a_attention_weights = qi_a_attention_weights.view(
+            qi_rep.shape[0],qi_rep.shape[1],qi_rep.shape[2],qi_rep.shape[3],a_rep.shape[2])  # [96,4,7,7,25]
+        attended_qi = torch.einsum('bnwha,bnwhd->bnad', (qi_a_attention_weights, qi_rep))# [96,4,7,7,25] * [96,4,7,7,512,] -> [96,4,25,512]
+        
+        
         
         ####################################
         # Perform Q by A attention
         # [batch_size, 4, question_length, answer_length]
-        # 
-        qa_similarity = self.span_attention(
-            q_rep.view(q_rep.shape[0] * q_rep.shape[1], q_rep.shape[2], q_rep.shape[3]),
-            a_rep.view(a_rep.shape[0] * a_rep.shape[1], a_rep.shape[2], a_rep.shape[3]),
-        ).view(a_rep.shape[0], a_rep.shape[1], q_rep.shape[2], a_rep.shape[2])
+        qa_similarity = self.span_attention(#[96,4,16.512]
+            q_rep.view(q_rep.shape[0] * q_rep.shape[1], q_rep.shape[2], q_rep.shape[3]),# [96, 4,16, 512]
+            a_rep.view(a_rep.shape[0] * a_rep.shape[1], a_rep.shape[2], a_rep.shape[3]),# [96, 4, 25, 512]
+        ).view(a_rep.shape[0], a_rep.shape[1], q_rep.shape[2], a_rep.shape[2])# [96,4,16,25]
         qa_attention_weights = masked_softmax(qa_similarity, question_mask[..., None], dim=2)
         attended_q = torch.einsum('bnqa,bnqd->bnad', (qa_attention_weights, q_rep))
+
 
         # Have a second attention over the objects, do A by Objs
         # [batch_size, 4, answer_length, num_objs]
@@ -304,8 +311,9 @@ class AttentionQA(Model):
         
 
         reasoning_inp = torch.cat([x for x, to_pool in [(a_rep, self.reasoning_use_answer),
-                                                           (attended_o, self.reasoning_use_obj),
-                                                           (attended_q, self.reasoning_use_question)]
+                                                        (attended_o, self.reasoning_use_obj),
+                                                        (attended_q, self.reasoning_use_question),
+                                                        (attended_qi, self.reasoning_use_vision)]
                                       if to_pool], -1)
         
         

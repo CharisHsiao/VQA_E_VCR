@@ -113,10 +113,9 @@ class SimpleExtractor(nn.Module):
     def forward(self,images: torch.Tensor):
         """
         :param images: [batch_size, 3, im_height, im_width]
-        :return: img_feats:[batch_size, 2048, im_height // 32, im_width // 32]
+        :return: img_feats:[batch_size, 2048, im_height //7 , im_width //7 ]
         :return: 
         """
-        # [batch_size, 2048, im_height // 7, im_width // 7]
         
         images = F.interpolate(images, size=(224,224), scale_factor=None, mode='bilinear', align_corners=None)
         img_feats = self.backbone(images)
