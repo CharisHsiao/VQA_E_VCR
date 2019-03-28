@@ -81,8 +81,8 @@ class AttentionQA(Model):
         # I want to replace the CrossEntropyLoss with LSR
         
         
-        self._loss = LabelSmoothingLoss(size=4,smoothing= 0.1)
-        # self._loss = torch.nn.CrossEntropyLoss()
+        # self._loss = LabelSmoothingLoss(size=4,smoothing= 0.1)
+        self._loss = torch.nn.CrossEntropyLoss()
         initializer(self)
 
     def _collect_obj_reps(self, span_tags, object_reps):

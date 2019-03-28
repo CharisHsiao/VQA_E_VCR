@@ -7,9 +7,11 @@ export CUDA_HOME=/usr/local/cuda-10.0/
 
 # nohup python train.py -params multiatt/default.json -folder saves/flagship_answer > ../out/train_q2a_log.txt 2>&1 &
 
-nohup python train.py -params multiatt_scene/default.json -folder saves/multiatt_scene/flagship_answer -rationale > ../out/train_qa2r_log.txt 2>&1 &
+# nohup python train.py -params multiatt_scene/default.json -folder saves/multiatt_scene/flagship_answer -rationale > ../out/train_qa2r_log.txt 2>&1 &
 
-tail -f ../out/train_qa2r_log.txt
+python train.py -params multiatt/default.json -folder save/mulitt/flagship_answer
+
+# tail -f ../out/train_qa2r_log.txt
 
 
 # python eval_q2ar.py -answer_preds saves/flagship_answer/valpreds.npy -rationale_preds saves/flagship_rationale/valpreds.npy > ../out/eval_log.txt 2>&1 &

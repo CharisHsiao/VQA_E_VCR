@@ -60,7 +60,8 @@ parser.add_argument(
 )
 
 args = parser.parse_args()
-
+#print(args.no_tqdm)
+#args.no_tqdm = True
 params = Params.from_file(args.params)
 train, val, test = VCR.splits(mode='rationale' if args.rationale else 'answer',
                               embs_to_load=params['dataset_reader'].get('embs', 'bert_da'),
@@ -81,12 +82,13 @@ def _to_gpu(td):
 num_workers = (4 * NUM_GPUS if NUM_CPUS >= 32 else 2*NUM_GPUS)-1
 #print(f"Using {num_workers} workers out of {NUM_CPUS} possible", flush=True)
 # print(f"Using {num_workers} workers out of {NUM_CPUS} possible")
-loader_params = {'batch_size': 96 // NUM_GPUS, 'num_gpus':NUM_GPUS, 'num_workers':num_workers}
+loader_params = {'batch_size': 32 // NUM_GPUS, 'num_gpus':NUM_GPUS, 'num_workers':num_workers}
 train_loader = VCRLoader.from_dataset(train, **loader_params)
 val_loader = VCRLoader.from_dataset(val, **loader_params)
 test_loader = VCRLoader.from_dataset(test, **loader_params)
 
 ARGS_RESET_EVERY = 100
+
 #print("Loading {} for {}".format(params['model'].get('type', 'WTF?'), 'rationales' if args.rationale else 'answer'), flush=True)
 print("Loading {} for {}".format(params['model'].get('type', 'WTF?'), 'rationales' if args.rationale else 'answer'))
 model = Model.from_params(vocab=train.vocab, params=params['model'])
@@ -116,7 +118,6 @@ else:
 
 param_shapes = print_para(model)
 num_batches = 0
-
 for epoch_num in range(start_epoch, params['trainer']['num_epochs'] + start_epoch):
     train_results = []
     norms = []
@@ -124,9 +125,7 @@ for epoch_num in range(start_epoch, params['trainer']['num_epochs'] + start_epoc
     for b, (time_per_batch, batch) in enumerate(time_batch(train_loader if args.no_tqdm else tqdm(train_loader), reset_every=ARGS_RESET_EVERY)):
         batch = _to_gpu(batch)
         optimizer.zero_grad()
-        print(batch)
         output_dict = model(**batch)
-        
         loss = output_dict['loss'].mean() + output_dict['cnn_regularization_loss'].mean()
         loss.backward()
 
@@ -150,12 +149,11 @@ for epoch_num in range(start_epoch, params['trainer']['num_epochs'] + start_epoc
         if b % ARGS_RESET_EVERY == 0 and b > 0:
             norms_df = pd.DataFrame(pd.DataFrame(norms[-ARGS_RESET_EVERY:]).mean(), columns=['norm']).join(
                 param_shapes[['shape', 'size']]).sort_values('norm', ascending=False)
-            # print('yifanyifanyifanyifanfan')
+
             print("e{:2d}b{:5d}/{:5d}. norms: \n{}\nsumm:\n{}\n~~~~~~~~~~~~~~~~~~\n".format(
                 epoch_num, b, len(train_loader),
                 norms_df.to_string(formatters={'norm': '{:.2f}'.format}),
-                pd.DataFrame(train_results[-ARGS_RESET_EVERY:]).mean(),
-            ))
+                pd.DataFrame(train_results[-ARGS_RESET_EVERY:]).mean(),), flush  =True)
 
     print("---\nTRAIN EPOCH {:2d}:\n{}\n----".format(epoch_num, pd.DataFrame(train_results).mean()))
     val_probs = []
@@ -177,14 +175,15 @@ for epoch_num in range(start_epoch, params['trainer']['num_epochs'] + start_epoc
     if scheduler:
         scheduler.step(val_metric_per_epoch[-1], epoch_num)
 
-    print("Val epoch {} has acc {:.3f} and loss {:.3f}".format(epoch_num, val_metric_per_epoch[-1], val_loss_avg))
+    print("Val epoch {} has acc {:.3f} and loss {:.3f}".format(epoch_num, val_metric_per_epoch[-1], val_loss_avg),
+          flush=True)
     if int(np.argmax(val_metric_per_epoch)) < (len(val_metric_per_epoch) - 1 - params['trainer']['patience']):
         print("Stopping at epoch {:2d}".format(epoch_num))
         break
     save_checkpoint(model, optimizer, args.folder, epoch_num, val_metric_per_epoch,
                     is_best=int(np.argmax(val_metric_per_epoch)) == (len(val_metric_per_epoch) - 1))
 
-print("STOPPING. now running the best model on the validation set")
+print("STOPPING. now running the best model on the validation set", flush=True)
 # Load best
 restore_best_checkpoint(model, args.folder)
 model.eval()

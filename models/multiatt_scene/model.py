@@ -26,37 +26,37 @@ class AttentionQA(Model):
                  reasoning_encoder: Seq2SeqEncoder,
                  input_dropout: float = 0.3,
                  hidden_dim_maxpool: int = 1024,
-                 class_embs: bool=True,
-                 reasoning_use_obj: bool=True,
-                 reasoning_use_answer: bool=True,
-                 reasoning_use_question: bool=True,
+                 class_embs: bool = True,
+                 reasoning_use_obj: bool = True,
+                 reasoning_use_answer: bool = True,
+                 reasoning_use_question: bool = True,
                  pool_reasoning: bool = True,
                  pool_answer: bool = True,
                  pool_question: bool = False,
-                 reasoning_use_vision: True,
+                 reasoning_use_vision: bool = True,
                  initializer: InitializerApplicator = InitializerApplicator(),
                  ):
-        print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~init_0~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+        
         super(AttentionQA, self).__init__(vocab)
 
         self.detector = SimpleDetector(pretrained=True, average_pool=True, semantic=class_embs, final_dim=512)
         self.extractor = SimpleExtractor(pretrained=True,num_classes=365, arch='resnet50')
         ###################################################################################################
-        print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~init_0.1~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+        
         self.rnn_input_dropout = TimeDistributed(InputVariationalDropout(input_dropout)) if input_dropout > 0 else None
 
         self.span_encoder = TimeDistributed(span_encoder)
         self.reasoning_encoder = TimeDistributed(reasoning_encoder)
-        print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~init_0.2~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+        
         
         # add scene classification visual feature and word embedding feature
         
-        print("init_1")
+        
         self.span_attention = BilinearMatrixAttention(
             matrix_1_dim=span_encoder.get_output_dim(),
             matrix_2_dim=span_encoder.get_output_dim(),
         )
-        print("init_2")
+        
         self.obj_attention = BilinearMatrixAttention(
             matrix_1_dim=span_encoder.get_output_dim(),
             matrix_2_dim=self.detector.final_dim,
@@ -73,7 +73,7 @@ class AttentionQA(Model):
                                         (span_encoder.get_output_dim(), self.pool_answer),
                                         (span_encoder.get_output_dim(), self.pool_question)] if to_pool])
         
-        self.projection = torch.nn.Conv2d(2048,final_dim=512,kernel_size=1,stride=2,padding=1, bias=True)
+        self.projection = torch.nn.Conv2d(2048,self.detector.final_dim,kernel_size=1,stride=2,padding=1, bias=True)
         
         self.final_mlp = torch.nn.Sequential(
             torch.nn.Dropout(input_dropout, inplace=False),
@@ -86,9 +86,9 @@ class AttentionQA(Model):
         
         
         # I want to replace the CrossEntropyLoss with LSR
-        print("init_3")
-        self._loss = LabelSmoothingLoss(size=4,smoothing=0.1)
-        # self._loss = torch.nn.CrossEntropyLoss()
+        
+        # self._loss = LabelSmoothingLoss(size=4,smoothing=0.1)
+        self._loss = torch.nn.CrossEntropyLoss()
         initializer(self)
 
     def _collect_obj_reps(self, span_tags, object_reps):
@@ -211,24 +211,24 @@ class AttentionQA(Model):
                 raise ValueError("Oh no! {}_tags has maximum of {} but objects is of dim {}. Values are\n{}".format(
                     tag_type, int(the_tags.max()), objects.shape, the_tags
                 ))
-        print(type(images))
-        print(type(question))
-        print(type(question_tags))
-        print(type(question_mask))
-        print('#######################images##################')
-        print(images.size())  # [96,3,384,768] [batch_size,3,im_height,im_width]
+#         print(type(images))
+#         print(type(question))
+#         print(type(question_tags))
+#         print(type(question_mask))
+#         print('#######################images##################')
+#         print(images.size())  # [96,3,384,768] [batch_size,3,im_height,im_width]
         
-        print('#######################question##################')
-        print(len(question)) # the value of len(question) is 1
-        for i in question:
-            print(i,question[i].size()) # [96,4,18,768] [batch_size,num_answers,seq_length,bert_dim]
+#         print('#######################question##################')
+#         print(len(question)) # the value of len(question) is 1
+#         for i in question:
+#             print(i,question[i].size()) # [96,4,18,768] [batch_size,num_answers,seq_length,bert_dim]
         
-        print('#######################question_tags##################')
-        print(type(question_tags))
-        print(question_tags.size())  # [96,4,18] [batch_size,num_answers,seq_length]
+#         print('#######################question_tags##################')
+#         print(type(question_tags))
+#         print(question_tags.size())  # [96,4,18] [batch_size,num_answers,seq_length]
         
-        print('#######################question_mask##################')
-        print(question_mask.size())  # [96,4,18] [batch_size,num_answers,seq_length]
+#         print('#######################question_mask##################')
+#         print(question_mask.size())  # [96,4,18] [batch_size,num_answers,seq_length]
         # raise ValueError('11111Stop by the user')
         
         
@@ -239,15 +239,15 @@ class AttentionQA(Model):
         q_rep, q_obj_reps = self.embed_span(question, question_tags, question_mask, obj_reps['obj_reps'])
         a_rep, a_obj_reps = self.embed_span(answers, answer_tags, answer_mask, obj_reps['obj_reps'])
         
-        print(type(q_rep))
-        print(type(q_obj_reps))
-        print(type(a_rep))
-        print(type(a_obj_reps))
-        print(q_rep.shape)    # torch.Size([96, 4, 16, 512]) [batch_size,num_answers, ]
-        print(q_obj_reps.shape) # torch.Size([96, 4, 16, 512])
-        print(a_rep.shape)    # torch.Size([96, 4, 25, 512])
-        print(a_obj_reps.shape) # torch.Size([96, 4, 25, 512])
-        raise ValueError('11111Stop by the user')
+#         print(type(q_rep))
+#         print(type(q_obj_reps))
+#         print(type(a_rep))
+#         print(type(a_obj_reps))
+#         print(q_rep.shape)    # torch.Size([96, 4, 16, 512]) [batch_size,num_answers, ]
+#         print(q_obj_reps.shape) # torch.Size([96, 4, 16, 512])
+#         print(a_rep.shape)    # torch.Size([96, 4, 25, 512])
+#         print(a_obj_reps.shape) # torch.Size([96, 4, 25, 512])
+#         raise ValueError('11111Stop by the user')
         
         #add scence classifcation feature and make the attention matrix betwwen visual feature and the answer features
         
@@ -269,13 +269,13 @@ class AttentionQA(Model):
         # Perform QI by Attention
         # [batch_size,4,7,7,answer_length]
         # qi_rep: [batch_size.7,7,dim]
-        qi_a_similarity = self.apan_attention(
-            qi_rep.view(qi_rep.shape[0]*qi_rep.shape[1],qi_rep.shape[2]*qi_rep.shape[3],qi_rep[4]),# [96*4,  7*7, 512,]
-            a_rep.view(a_rep.shape[0]*a_rep.shape[1],a_rep.shape[2],a_rep.shape[3]),# [96*4, 25, 512]
+        qi_a_similarity = self.span_attention(
+            qi_rep.view(qi_rep.shape[0] * qi_rep.shape[1],qi_rep.shape[2]* qi_rep.shape[3],qi_rep.shape[4]),# [96*4,  7*7, 512,]
+            a_rep.view(a_rep.shape[0] * a_rep.shape[1],a_rep.shape[2],a_rep.shape[3]),# [96*4, 25, 512]
         ).view(a_rep.shape[0],a_rep.shape[1],qi_rep.shape[2]*qi_rep.shape[3],a_rep.shape[2]) # [96,4,7*7,25]
         
         
-        qi_a_attention_weights = softmax(qi_a_similarity,dim=2)  # [96,4,7*7,25]
+        qi_a_attention_weights = F.softmax(qi_a_similarity,dim=2)  # [96,4,7*7,25]
         qi_a_attention_weights = qi_a_attention_weights.view(
             qi_rep.shape[0],qi_rep.shape[1],qi_rep.shape[2],qi_rep.shape[3],a_rep.shape[2])  # [96,4,7,7,25]
         attended_qi = torch.einsum('bnwha,bnwhd->bnad', (qi_a_attention_weights, qi_rep))# [96,4,7,7,25] * [96,4,7,7,512,] -> [96,4,25,512]
